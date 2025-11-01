@@ -1,0 +1,357 @@
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <locale.h>
+#include <time.h>
+
+void generujSygnal(double wspolczynniki[], double xmin, double xmax, double sygnal[], int rozmiar);
+void pobierzWspolczynniki(double wspolczynniki[]);
+void pobierzDziedzine(double* xmin, double* xmax);
+int pobierzLiczbeProbek();
+void zapiszDoCSV(double xmin, double xmax, double sygnal[], int rozmiar, const char* nazwa_pliku);
+void dodajSzum(double sygnal[], int rozmiar, double max_amplituda);
+void filtrMedianowy(double we[], double wy[], int n);
+void filtrSredniej(double we[], double wy[], int n);
+void coTrzeciaProbka(double xmin, double xmax, double sygnal[], int rozmiar, const char* nazwa_pliku);
+void wyswietlMenu();
+
+void generujSygnal(double wspolczynniki[], double xmin, double xmax, double sygnal[], int rozmiar) {
+    double A = wspolczynniki[0];
+    double B = wspolczynniki[1];
+    double C = wspolczynniki[2];
+    double D = wspolczynniki[3];
+    double dx = (xmax - xmin) / (rozmiar - 1);
+    for (int i = 0; i < rozmiar; i++) {
+        double x = xmin + i * dx;
+        sygnal[i] = A * sin(x / B) + C * cos(x + D);
+    }
+}
+
+void pobierzWspolczynniki(double wspolczynniki[]) {
+    printf("Podaj wspolczynnik A: ");
+    scanf_s("%lf", &wspolczynniki[0]);
+    do {
+        printf("Podaj wspolczynnik B: ");
+        scanf_s("%lf", &wspolczynniki[1]);
+        if (wspolczynniki[1] == 0) {
+            printf("xmax musi byc wieksze od xmin\n");
+        }
+    } while (wspolczynniki[1] == 0);
+    printf("Podaj wspolczynnik C: ");
+    scanf_s("%lf", &wspolczynniki[2]);
+    printf("Podaj wspolczynnik D: ");
+    scanf_s("%lf", &wspolczynniki[3]);
+}
+
+void pobierzDziedzine(double* xmin, double* xmax) {
+    do {
+        printf("Podaj xmin: ");
+        scanf_s("%lf", xmin);
+        printf("Podaj xmax: ");
+        scanf_s("%lf", xmax);
+        if (*xmax < *xmin) {
+            printf("xmax musi byc wieksze od xmin\n");
+        }
+    } while (*xmax < *xmin);
+}
+
+int pobierzLiczbeProbek() {
+    int liczba_probek;
+    do {
+        printf("Podaj liczbe probek (minimum 1): ");
+        scanf_s("%d", &liczba_probek);
+        if (liczba_probek < 1) {
+            printf("Blad: Liczba probek musi byc co najmniej 1!\n");
+        }
+    } while (liczba_probek < 1);
+    printf("Podano liczbe probek: %d\n", liczba_probek);
+    return liczba_probek;
+}
+
+void zapiszDoCSV(double xmin, double xmax, double sygnal[], int rozmiar, const char* nazwa_pliku) {
+    FILE* plik = fopen(nazwa_pliku, "w");
+    if (plik == NULL) {
+        printf("Blad: Nie mozna otworzyc pliku %s do zapisu!\n", nazwa_pliku);
+        return;
+    }
+    double dx = (xmax - xmin) / (rozmiar - 1);
+    fprintf(plik, "x;y\n");
+    for (int i = 0; i < rozmiar; i++) {
+        double x = xmin + i * dx;
+        fprintf(plik, "%.3lf;%.3lf\n", x, sygnal[i]);
+    }
+    fclose(plik);
+    printf("Zapisano %d probek do pliku %s\n", rozmiar, nazwa_pliku);
+}
+
+void dodajSzum(double sygnal[], int rozmiar, double max_amplituda) {
+    srand((unsigned int)time(NULL));
+    double prawdopodobienstwo = 0.3;
+    for (int i = 0; i < rozmiar; i++) {
+        double r = (double)rand() / RAND_MAX;
+        if (r < prawdopodobienstwo) {
+            double szum = ((double)rand() / RAND_MAX) * 2 * max_amplituda - max_amplituda;
+            sygnal[i] += szum;
+        }
+    }
+}
+
+void filtrMedianowy(double we[], double wy[], int n) {
+    int rozmiar_okna = 5;
+    int polowa_okna = rozmiar_okna / 2;
+    int i, j, k;
+    for (i = 0; i < n; i++) {
+        if (i < polowa_okna || i >= n - polowa_okna) {
+            wy[i] = we[i];
+        }
+        else {
+            double okno[5];
+            int idx = 0;
+            for (j = -polowa_okna; j <= polowa_okna; j++) {
+                okno[idx] = we[i + j];
+                idx = idx + 1;
+            }
+
+            for (j = 0; j < rozmiar_okna - 1; j++) {
+                for (k = 0; k < rozmiar_okna - 1 - j; k++) {
+                    if (okno[k] > okno[k + 1]) {
+                        double tmp_var = okno[k];
+                        okno[k] = okno[k + 1];
+                        okno[k + 1] = tmp_var;
+                    }
+                }
+            }
+            wy[i] = okno[polowa_okna];
+        }
+    }
+}
+
+void filtrSredniej(double we[], double wy[], int n) {
+    int rozmiar_okna = 5;
+    int polowa_okna = rozmiar_okna / 2;
+    int i, j;
+    for (i = 0; i < n; i++) {
+        if (i < polowa_okna || i >= n - polowa_okna) {
+            wy[i] = we[i];
+        }
+        else {
+            double suma = 0.0;
+            for (j = -polowa_okna; j <= polowa_okna; j++) {
+                suma = suma + we[i + j];
+            }
+            wy[i] = suma / (double)rozmiar_okna;
+        }
+    }
+}
+
+
+void coTrzeciaProbka(double xmin, double xmax, double sygnal[], int rozmiar, const char* nazwa_pliku) {
+    FILE* plik = fopen(nazwa_pliku, "w");
+    if (plik == NULL) {
+        printf("Blad: Nie mozna otworzyc pliku %s do zapisu!\n", nazwa_pliku);
+        return;
+    }
+    double dx = (xmax - xmin) / (rozmiar - 1);
+    fprintf(plik, "x;y\n");
+    for (int i = 0; i < rozmiar; i= i+3) {
+        double x = xmin + i * dx;
+        fprintf(plik, "%.3lf;%.3lf\n", x, sygnal[i]);
+    }
+    fclose(plik);
+    printf("Zapisano %d probek do pliku %s\n", rozmiar, nazwa_pliku);
+}
+
+void wyswietlMenu() {
+    printf("\n=== MENU UZYTKOWNIKA ===\n");
+    printf("1. Generowanie sygnalu podstawowego\n");
+    printf("2. Wprowadzanie szumu do sygnalu\n");
+    printf("3. Filtracja sygnalu\n");
+    printf("4. Zapis do pliku\n");
+    printf("5. zapis co 3 próbke\n");
+    printf("0. Zakonczenie programu\n");
+    printf("Wybierz opcje: ");
+}
+
+int main() {
+    setlocale(LC_ALL, "polish_poland");
+    srand((unsigned int)time(NULL));
+    double* sygnal_podstawowy = NULL;
+    double* sygnal_zaszumiony = NULL;
+    double* sygnal_odfiltrowany = NULL;
+    int aktualna_liczba_probek = 0;
+    double A_B_C_D[4];
+    double xmin, xmax;
+    int menu = -1;
+
+    while (menu != 0) {
+        wyswietlMenu();
+        scanf_s("%d", &menu);
+
+        switch (menu) {
+        case 0:
+            printf("Zakonczenie programu\n");
+            break;
+
+        case 1:
+            pobierzWspolczynniki(A_B_C_D);
+            pobierzDziedzine(&xmin, &xmax);
+            aktualna_liczba_probek = pobierzLiczbeProbek();
+
+            if (sygnal_podstawowy != NULL) free(sygnal_podstawowy);
+            if (sygnal_zaszumiony != NULL) free(sygnal_zaszumiony);
+            if (sygnal_odfiltrowany != NULL) free(sygnal_odfiltrowany);
+
+            sygnal_podstawowy = (double*)malloc(aktualna_liczba_probek * sizeof(double));
+            if (sygnal_podstawowy == NULL) {
+                printf("Blad: Nie udalo sie zaalokowac pamieci!\n");
+                break;
+            }
+
+            generujSygnal(A_B_C_D, xmin, xmax, sygnal_podstawowy, aktualna_liczba_probek);
+            printf("Wygenerowano sygnal podstawowy (%d probek)\n", aktualna_liczba_probek);
+
+            printf("\nPodglad sygnalu:\n");
+            double dx = (xmax - xmin) / (aktualna_liczba_probek - 1);
+            for (int i = 0; i < aktualna_liczba_probek; i++) {
+                double x = xmin + i * dx;
+                printf("x = %.3f, y = %.3f\n", x, sygnal_podstawowy[i]);
+            }
+            break;
+
+        case 2:
+            if (sygnal_podstawowy == NULL) {
+                printf("Blad: Najpierw wygeneruj sygnal podstawowy (opcja 1)!\n");
+                break;
+            }
+
+            {
+                double max_amplituda;
+                printf("Podaj maksymalna amplitude szumu: ");
+                scanf_s("%lf", &max_amplituda);
+
+                if (sygnal_zaszumiony != NULL) free(sygnal_zaszumiony);
+                sygnal_zaszumiony = (double*)malloc(aktualna_liczba_probek * sizeof(double));
+                if (sygnal_zaszumiony == NULL) {
+                    printf("Blad: Nie udalo sie zaalokowac pamieci!\n");
+                    break;
+                }
+
+                for (int i = 0; i < aktualna_liczba_probek; i++) {
+                    sygnal_zaszumiony[i] = sygnal_podstawowy[i];
+                }
+
+                dodajSzum(sygnal_zaszumiony, aktualna_liczba_probek, max_amplituda);
+                printf("Dodano szum do sygnalu\n");
+
+                dx = (xmax - xmin) / (aktualna_liczba_probek - 1);
+                printf("\nPodglad sygnalu zaszumionego (pierwsze 5 probek):\n");
+                for (int i = 0; i < 5 && i < aktualna_liczba_probek; i++) {
+                    double x = xmin + i * dx;
+                    printf("x = %.3f, y = %.3f\n", x, sygnal_zaszumiony[i]);
+                }
+            }
+            break;
+
+        case 3:
+            if (sygnal_podstawowy == NULL && sygnal_zaszumiony == NULL) {
+                printf("Blad: Brak sygnalow do filltracji!\n");
+                break;
+            }
+            {
+                int wybor;
+                printf("jaki filtr zastosowac?\n");
+                printf("1.medianowy\n");
+                printf("2.sredniej ruchomej\n");
+                printf("Wybierz opcje: ");
+                scanf_s("%d", &wybor);
+                if (sygnal_zaszumiony == NULL) {
+                    printf("Brak sygnalu zaszumionego - nie mozna filtrowac!\n");
+                    break;
+                }
+                if (sygnal_odfiltrowany != NULL) free(sygnal_odfiltrowany);
+                sygnal_odfiltrowany = (double*)malloc(aktualna_liczba_probek * sizeof(double));
+                if (sygnal_odfiltrowany == NULL) {
+                    printf("Blad: Nie udalo sie zaalokowac pamieci dla sygnalu odfiltrowanego!\n");
+                    break;
+                }
+                if (wybor == 1) {
+                    filtrMedianowy(sygnal_zaszumiony, sygnal_odfiltrowany, aktualna_liczba_probek);
+                    printf("Zastosowano filtr medianowy\n");
+                }
+                else if (wybor == 2) {
+                    filtrSredniej(sygnal_zaszumiony, sygnal_odfiltrowany, aktualna_liczba_probek);
+                    printf("Zastosowano filtr sredniej ruchomej\n");
+                }
+                else {
+                    printf("Blad: Nieprawidlowy wybor lub brak sygnalu do filtracji!\n");
+                    free(sygnal_odfiltrowany);
+                    sygnal_odfiltrowany = NULL;
+                }
+            }
+            break;
+
+        case 4:
+            if (sygnal_podstawowy == NULL && sygnal_zaszumiony == NULL) {
+                printf("Blad: Brak sygnalow do zapisania!\n");
+                break;
+            }
+            {
+                int wybor_zap;
+                printf("Ktory sygnal zapisac?\n");
+                printf("1. Sygnal podstawowy\n");
+                printf("2. Sygnal zaszumiony\n");
+                printf("3. Sygnal odfiltrowany\n");
+                printf("Wybierz opcje: ");
+                scanf_s("%d", &wybor_zap);
+
+                if (wybor_zap == 1 && sygnal_podstawowy != NULL) {
+                    zapiszDoCSV(xmin, xmax, sygnal_podstawowy, aktualna_liczba_probek, "sygnal_podstawowy.csv");
+                }
+                else if (wybor_zap == 2 && sygnal_zaszumiony != NULL) {
+                    zapiszDoCSV(xmin, xmax, sygnal_zaszumiony, aktualna_liczba_probek, "sygnal_zaszumiony.csv");
+                }
+                else if (wybor_zap == 3 && sygnal_odfiltrowany != NULL) {
+                    zapiszDoCSV(xmin, xmax, sygnal_odfiltrowany, aktualna_liczba_probek, "sygnal_odfiltrowany.csv");
+                }
+                else if (wybor_zap == 4 && sygnal_odfiltrowany != NULL) {///zmienic jakiego sygnalu ma byc probka
+                    coTrzeciaProbka(xmin, xmax, sygnal_odfiltrowany, aktualna_liczba_probek, "sygnal_co3.csv");
+                }
+                else {
+                    printf("Blad: Nieprawidlowy wybor lub brak sygnalu!\n");
+                }
+            }
+            break;
+
+        case 5:
+        {
+            int wybor_zap;
+            printf("Ktory sygnal zapisac?\n");
+            printf("1. Sygnal podstawowy\n");
+            printf("2. Sygnal zaszumiony\n");
+            printf("3. Sygnal odfiltrowany\n");
+            printf("Wybierz opcje: ");
+            scanf_s("%d", &wybor_zap);
+
+            if (wybor_zap == 1 && sygnal_podstawowy != NULL) {
+                coTrzeciaProbka(xmin, xmax, sygnal_podstawowy, aktualna_liczba_probek, "sygnal_podstawowy.csv");
+            }
+            else if (wybor_zap == 2 && sygnal_zaszumiony != NULL) {
+                coTrzeciaProbka(xmin, xmax, sygnal_zaszumiony, aktualna_liczba_probek, "sygnal_zaszumiony.csv");
+            }
+            else if (wybor_zap == 3 && sygnal_odfiltrowany != NULL) {
+                coTrzeciaProbka(xmin, xmax, sygnal_odfiltrowany, aktualna_liczba_probek, "sygnal_odfiltrowany.csv");
+                break;
+            }
+        default:
+            printf("Nieprawidlowa opcja!\n");
+            break;
+
+        }
+
+        if (sygnal_podstawowy != NULL) free(sygnal_podstawowy);
+        if (sygnal_zaszumiony != NULL) free(sygnal_zaszumiony);
+        if (sygnal_odfiltrowany != NULL) free(sygnal_odfiltrowany);
+        return 0;
+        }
+    }
+}
