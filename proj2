@@ -1,0 +1,70 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define MAX_NAZWA 50
+#define MAX_ROZMIAR 100
+struct Obraz {
+    char nazwa[MAX_NAZWA];
+    char standard[3];
+    int szerokosc;
+    int wysokosc;
+    int max_wartosc;
+    int piksele[MAX_ROZMIAR][MAX_ROZMIAR];
+};
+void wczytajObraz(struct Obraz* obr, const char* nazwaPliku) {
+    FILE* plik = fopen(nazwaPliku, "r");
+    if (plik == NULL) {
+        printf("Blad: Nie mozna otworzyc pliku %s\n", nazwaPliku);
+        exit(1);
+    }
+    fscanf(plik, "%2s", obr->standard);
+    if (strcmp(obr->standard, "P2") != 0) {
+        printf("Blad: Nieobslugiwany standard pliku PGM\n");
+        fclose(plik);
+        exit(1);
+    }
+    fscanf(plik, "%d %d", &obr->szerokosc, &obr->wysokosc);
+    fscanf(plik, "%d", &obr->max_wartosc);
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fscanf(plik, "%d", &obr->piksele[i][j]);
+        }
+    }
+    fclose(plik);
+    strcpy(obr->nazwa, nazwaPliku);
+    printf("Pomyslnie wczytano obraz: %s\n", nazwaPliku);
+}
+void zapiszObraz(struct Obraz* obr, const char* nazwaPliku) {
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (plik == NULL) {
+        printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+        exit(1);
+    }
+    fprintf(plik, "%s\n", obr->standard);
+    fprintf(plik, "%d %d\n", obr->szerokosc, obr->wysokosc);
+    fprintf(plik, "%d\n", obr->max_wartosc);
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fprintf(plik, "%d ", obr->piksele[i][j]);
+        }
+        fprintf(plik, "\n");
+    }
+    fclose(plik);
+    printf("Pomyslnie zapisano obraz: %s\n", nazwaPliku);
+}
+int main() {
+    struct Obraz obr;
+    printf("=== Program do przetwarzania obrazow PGM ===\n");
+    printf("\n--- Test dla testH.pgm ---\n");
+    wczytajObraz(&obr, "testH.pgm");
+    zapiszObraz(&obr, "testH_kopia.pgm");
+    printf("\n--- Test dla testV.pgm ---\n");
+    wczytajObraz(&obr, "testV.pgm");
+    zapiszObraz(&obr, "testV_kopia.pgm");
+    printf("\nTesty zakonczone pomyslnie. Obrazy zapisane jako:\n");
+    printf("- testH_kopia.pgm\n- testV_kopia.pgm\n");
+    printf("\nNacisnij Enter aby zakonczyc...");
+    getchar();
+    return 0;
+}
