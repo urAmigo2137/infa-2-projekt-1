@@ -1,0 +1,223 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_NAZWA 100
+
+struct Obraz {
+    char nazwa[MAX_NAZWA];
+    char standard[3];
+    int szerokosc;
+    int wysokosc;
+    int max_wartosc;
+    int** piksele;
+};
+
+void zwolnijObraz(struct Obraz* obr) {
+    if (obr->piksele) {
+        for (int i = 0; i < obr->wysokosc; i++)
+            free(obr->piksele[i]);
+        free(obr->piksele);
+        obr->piksele = NULL;
+    }
+}
+
+int pominKomentarze(FILE* plik) {
+    int c;
+    while ((c = fgetc(plik)) != EOF) {
+        if (c == '#') {
+            while ((c = fgetc(plik)) != '\n' && c != EOF);
+        }
+        else if (!isspace(c)) {
+            ungetc(c, plik);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void wczytajObraz(struct Obraz* obr, const char* nazwaPliku) {
+    zwolnijObraz(obr);
+    FILE* plik = fopen(nazwaPliku, "r");
+    if (!plik) {
+        printf("Blad: Nie mozna otworzyc pliku %s\n", nazwaPliku);
+        return;
+    }
+
+    pominKomentarze(plik);
+    fscanf(plik, "%2s", obr->standard);
+    pominKomentarze(plik);
+    fscanf(plik, "%d %d", &obr->szerokosc, &obr->wysokosc);
+    pominKomentarze(plik);
+    fscanf(plik, "%d", &obr->max_wartosc);
+
+    obr->piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        obr->piksele[i] = malloc(obr->szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            pominKomentarze(plik);
+            fscanf(plik, "%d", &obr->piksele[i][j]);
+        }
+    }
+
+    fclose(plik);
+    strcpy(obr->nazwa, nazwaPliku);
+    printf("Wczytano: %s (%d x %d)\n", nazwaPliku, obr->szerokosc, obr->wysokosc);
+}
+
+void zapiszObraz(struct Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) {
+        printf("Blad: Brak obrazu do zapisania\n");
+        return;
+    }
+
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (!plik) {
+        printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+        return;
+    }
+
+    fprintf(plik, "%s\n", obr->standard);
+    fprintf(plik, "%d %d\n", obr->szerokosc, obr->wysokosc);
+    fprintf(plik, "%d\n", obr->max_wartosc);
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fprintf(plik, "%d ", obr->piksele[i][j]);
+        }
+        fprintf(plik, "\n");
+    }
+
+    fclose(plik);
+    printf("Zapisano jako: %s\n", nazwaPliku);
+}
+
+// Zestaw B: Negatyw obrazu
+void negatyw(struct Obraz* obr) {
+    if (!obr->piksele) return;
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            obr->piksele[i][j] = obr->max_wartosc - obr->piksele[i][j];
+        }
+    }
+    printf("Wykonano negatyw\n");
+}
+
+// Zestaw B: Histogram
+void histogram(struct Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) return;
+
+    int* hist = calloc(obr->max_wartosc + 1, sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            hist[obr->piksele[i][j]]++;
+        }
+    }
+
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (plik) {
+        fprintf(plik, "Odcien,LiczbaPikseli\n");
+        for (int i = 0; i <= obr->max_wartosc; i++) {
+            fprintf(plik, "%d,%d\n", i, hist[i]);
+        }
+        fclose(plik);
+        printf("Histogram zapisano do: %s\n", nazwaPliku);
+    }
+    else {
+        printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+    }
+
+    free(hist);
+}
+
+// Zestaw B: Statystyki obrazu
+void statystyki(struct Obraz* obr) {
+    if (!obr->piksele) return;
+
+    int min = obr->max_wartosc;
+    int max = 0;
+    long long suma = 0;
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int wartosc = obr->piksele[i][j];
+            if (wartosc < min) min = wartosc;
+            if (wartosc > max) max = wartosc;
+            suma += wartosc;
+        }
+    }
+
+    double srednia = (double)suma / liczba_pikseli;
+
+    printf("Statystyki obrazu:\n");
+    printf("Minimalna wartosc: %d\n", min);
+    printf("Maksymalna wartosc: %d\n", max);
+    printf("Srednia wartosc: %.2f\n", srednia);
+    printf("Liczba pikseli: %d\n", liczba_pikseli);
+}
+
+int main() {
+    struct Obraz obr;
+    obr.piksele = NULL;
+
+    char plikWe[MAX_NAZWA];
+    char plikWy[MAX_NAZWA];
+    int wybor = -1;
+
+    while (wybor != 0) {
+        printf("\n--- ZESTAW B: NEGATYW, HISTOGRAM, STATYSTYKI ---\n");
+        printf("1. Wczytaj obraz\n");
+        printf("2. Zapisz obraz\n");
+        printf("3. Negatyw obrazu\n");
+        printf("4. Histogram (zapis do CSV)\n");
+        printf("5. Statystyki obrazu\n");
+        printf("0. Wyjscie\n");
+        printf("Wybor: ");
+        scanf("%d", &wybor);
+
+        switch (wybor) {
+        case 1:
+            printf("Plik do odczytu: ");
+            scanf("%s", plikWe);
+            wczytajObraz(&obr, plikWe);
+            break;
+
+        case 2:
+            printf("Plik do zapisu: ");
+            scanf("%s", plikWy);
+            zapiszObraz(&obr, plikWy);
+            break;
+
+        case 3:
+            negatyw(&obr);
+            break;
+
+        case 4:
+            printf("Nazwa pliku CSV: ");
+            scanf("%s", plikWy);
+            histogram(&obr, plikWy);
+            break;
+
+        case 5:
+            statystyki(&obr);
+            break;
+
+        case 0:
+            printf("Koniec programu.\n");
+            break;
+
+        default:
+            printf("Nieprawidlowy wybor!\n");
+        }
+    }
+
+    zwolnijObraz(&obr);
+    return 0;
+}
