@@ -1,0 +1,214 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <time.h>
+
+#define MAX_NAZWA 100
+
+struct Obraz {
+    char nazwa[MAX_NAZWA];
+    char standard[3];
+    int szerokosc;
+    int wysokosc;
+    int max_wartosc;
+    int** piksele;
+};
+
+void zwolnijObraz(struct Obraz* obr) {
+    if (obr->piksele) {
+        for (int i = 0; i < obr->wysokosc; i++)
+            free(obr->piksele[i]);
+        free(obr->piksele);
+        obr->piksele = NULL;
+    }
+}
+
+int pominKomentarze(FILE* plik) {
+    int c;
+    while ((c = fgetc(plik)) != EOF) {
+        if (c == '#') {
+            while ((c = fgetc(plik)) != '\n' && c != EOF);
+        }
+        else if (!isspace(c)) {
+            ungetc(c, plik);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void wczytajObraz(struct Obraz* obr, const char* nazwaPliku) {
+    zwolnijObraz(obr);
+    FILE* plik = fopen(nazwaPliku, "r");
+    if (!plik) {
+        printf("Blad: Nie mozna otworzyc pliku %s\n", nazwaPliku);
+        return;
+    }
+    
+    pominKomentarze(plik);
+    fscanf(plik, "%2s", obr->standard);
+    pominKomentarze(plik);
+    fscanf(plik, "%d %d", &obr->szerokosc, &obr->wysokosc);
+    pominKomentarze(plik);
+    fscanf(plik, "%d", &obr->max_wartosc);
+    
+    obr->piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        obr->piksele[i] = malloc(obr->szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            pominKomentarze(plik);
+            fscanf(plik, "%d", &obr->piksele[i][j]);
+        }
+    }
+
+    fclose(plik);
+    strcpy(obr->nazwa, nazwaPliku);
+    printf("Wczytano: %s (%d x %d)\n", nazwaPliku, obr->szerokosc, obr->wysokosc);
+}
+
+void zapiszObraz(struct Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) {
+        printf("Blad: Brak obrazu do zapisania\n");
+        return;
+    }
+    
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (!plik) {
+        printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+        return;
+    }
+    
+    fprintf(plik, "%s\n", obr->standard);
+    fprintf(plik, "%d %d\n", obr->szerokosc, obr->wysokosc);
+    fprintf(plik, "%d\n", obr->max_wartosc);
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fprintf(plik, "%d ", obr->piksele[i][j]);
+        }
+        fprintf(plik, "\n");
+    }
+
+    fclose(plik);
+    printf("Zapisano jako: %s\n", nazwaPliku);
+}
+
+// Zestaw C: Odbicie obrazu
+void odbicie(struct Obraz* obr, int kierunek) {
+    if (!obr->piksele) return;
+    
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    
+    if (kierunek == 1) { // pionowe (względem osi pionowej)
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[i][obr->szerokosc - 1 - j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie pionowe\n");
+    } else { // poziome (względem osi poziomej)
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[obr->wysokosc - 1 - i][j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie poziome\n");
+    }
+    
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+}
+
+// Zestaw C: Szum "pieprz i sól"
+void szumPieprzSol(struct Obraz* obr, float prawdopodobienstwo) {
+    if (!obr->piksele) return;
+    
+    srand(time(NULL));
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+    int liczba_zmian = (int)(liczba_pikseli * prawdopodobienstwo);
+    
+    printf("Dodawanie szumu do %d pikseli...\n", liczba_zmian);
+    
+    for (int i = 0; i < liczba_zmian; i++) {
+        int x = rand() % obr->szerokosc;
+        int y = rand() % obr->wysokosc;
+        
+        if (rand() % 2 == 0) {
+            obr->piksele[y][x] = 0; // "pieprz" - czarny
+        } else {
+            obr->piksele[y][x] = obr->max_wartosc; // "sol" - bialy
+        }
+    }
+    
+    printf("Dodano szum 'pieprz i sol' (p=%.3f, %d pikseli)\n", prawdopodobienstwo, liczba_zmian);
+}
+
+int main() {
+    struct Obraz obr;
+    obr.piksele = NULL;
+
+    char plikWe[MAX_NAZWA];
+    char plikWy[MAX_NAZWA];
+    int wybor = -1;
+    float p;
+
+    while (wybor != 0) {
+        printf("\n--- ZESTAW C: ODBICIE I SZUM ---\n");
+        printf("1. Wczytaj obraz\n");
+        printf("2. Zapisz obraz\n");
+        printf("3. Odbicie pionowe\n");
+        printf("4. Odbicie poziome\n");
+        printf("5. Szum 'pieprz i sol'\n");
+        printf("0. Wyjscie\n");
+        printf("Wybor: ");
+        scanf("%d", &wybor);
+
+        switch (wybor) {
+            case 1:
+                printf("Plik do odczytu: ");
+                scanf("%s", plikWe);
+                wczytajObraz(&obr, plikWe);
+                break;
+                
+            case 2:
+                printf("Plik do zapisu: ");
+                scanf("%s", plikWy);
+                zapiszObraz(&obr, plikWy);
+                break;
+                
+            case 3:
+                odbicie(&obr, 1); // pionowe
+                break;
+                
+            case 4:
+                odbicie(&obr, 0); // poziome
+                break;
+                
+            case 5:
+                printf("Podaj prawdopodobienstwo szumu (0.0-1.0): ");
+                scanf("%f", &p);
+                if (p >= 0.0f && p <= 1.0f) {
+                    szumPieprzSol(&obr, p);
+                } else {
+                    printf("Nieprawidlowe prawdopodobienstwo! Musi byc w zakresie 0.0-1.0\n");
+                }
+                break;
+                
+            case 0:
+                printf("Koniec programu.\n");
+                break;
+                
+            default:
+                printf("Nieprawidlowy wybor!\n");
+        }
+    }
+
+    zwolnijObraz(&obr);
+    return 0;
+}
