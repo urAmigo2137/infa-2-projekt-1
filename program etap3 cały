@@ -1,0 +1,433 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <time.h>
+#define MAX_NAZWA 100
+
+struct Obraz {
+    char nazwa[MAX_NAZWA];
+    char standard[3];
+    int szerokosc;
+    int wysokosc;
+    int max_wartosc;
+    int** piksele;
+};
+
+void zwolnijObraz(struct Obraz* obr) {
+    if (obr->piksele) {
+        for (int i = 0; i < obr->wysokosc; i++)
+            free(obr->piksele[i]);
+        free(obr->piksele);
+        obr->piksele = NULL;
+    }
+}
+int pominKomentarze(FILE* plik) {
+    int c;
+    while ((c = fgetc(plik)) != EOF) {
+        if (c == '#') {
+            while ((c = fgetc(plik)) != '\n' && c != EOF);
+        }
+        else if (!isspace(c)) {
+            ungetc(c, plik);
+            return 1;
+        }
+    }
+    return 0;
+}
+void wczytajObraz(struct Obraz* obr, const char* nazwaPliku) {
+    zwolnijObraz(obr);
+    FILE* plik = fopen(nazwaPliku, "r");
+    //if (!plik) {
+      //  printf("Blad: Nie mozna otworzyc pliku %s\n", nazwaPliku);
+      //  return;
+   // }
+    pominKomentarze(plik);
+    fscanf(plik, "%2s", obr->standard);
+    pominKomentarze(plik);
+    fscanf(plik, "%d %d", &obr->szerokosc, &obr->wysokosc);
+    pominKomentarze(plik);
+    fscanf(plik, "%d", &obr->max_wartosc);
+    
+    obr->piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        obr->piksele[i] = malloc(obr->szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            pominKomentarze(plik);
+            fscanf(plik, "%d", &obr->piksele[i][j]);
+        }
+    }
+    fclose(plik);
+    strcpy(obr->nazwa, nazwaPliku);
+    printf("Wczytano: %s (%d x %d)\n", nazwaPliku, obr->szerokosc, obr->wysokosc);
+}
+void zapiszObraz(struct Obraz* obr, const char* nazwaPliku) {
+    //if (!obr->piksele) {
+      //  printf("Blad: Brak obrazu do zapisania\n");
+        //return;
+    //}
+    
+    FILE* plik = fopen(nazwaPliku, "w");
+    //if (!plik) {
+      //  printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+        //return;
+    }
+    fprintf(plik, "%s\n", obr->standard);
+    fprintf(plik, "%d %d\n", obr->szerokosc, obr->wysokosc);
+    fprintf(plik, "%d\n", obr->max_wartosc);
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fprintf(plik, "%d ", obr->piksele[i][j]);
+        }
+        fprintf(plik, "\n");
+    }
+    fclose(plik);
+    printf("Zapisano jako: %s\n", nazwaPliku);
+}
+void obrot90(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    int nowa_szerokosc = obr->wysokosc;
+    int nowa_wysokosc = obr->szerokosc;
+    int** nowe_piksele = malloc(nowa_wysokosc * sizeof(int*));
+    for (int i = 0; i < nowa_wysokosc; i++)
+        nowe_piksele[i] = malloc(nowa_szerokosc * sizeof(int));
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[j][nowa_szerokosc - 1 - i] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->szerokosc = nowa_szerokosc;
+    obr->wysokosc = nowa_wysokosc;
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 90 stopni\n");
+}
+void obrot180(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[obr->wysokosc - 1 - i][obr->szerokosc - 1 - j] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 180 stopni\n");
+}
+void obrot270(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    int nowa_szerokosc = obr->wysokosc;
+    int nowa_wysokosc = obr->szerokosc;
+    int** nowe_piksele = malloc(nowa_wysokosc * sizeof(int*));
+    for (int i = 0; i < nowa_wysokosc; i++)
+        nowe_piksele[i] = malloc(nowa_szerokosc * sizeof(int));
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[nowa_wysokosc - 1 - j][i] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->szerokosc = nowa_szerokosc;
+    obr->wysokosc = nowa_wysokosc;
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 270 stopni\n");
+}
+void negatyw(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            obr->piksele[i][j] = obr->max_wartosc - obr->piksele[i][j];
+        }
+    }
+    printf("Wykonano negatyw\n");
+}
+
+void histogram(struct Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) return;
+    
+    int* hist = calloc(obr->max_wartosc + 1, sizeof(int));
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            hist[obr->piksele[i][j]]++;
+        }
+    }
+    
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (plik) {
+        fprintf(plik, "Odcien,LiczbaPikseli\n");
+        for (int i = 0; i <= obr->max_wartosc; i++) {
+            fprintf(plik, "%d,%d\n", i, hist[i]);
+        }
+        fclose(plik);
+        printf("Histogram zapisano do: %s\n", nazwaPliku);
+    }
+    
+    free(hist);
+}
+
+void statystyki(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    
+    int min = obr->max_wartosc;
+    int max = 0;
+    long long suma = 0;
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int wartosc = obr->piksele[i][j];
+            if (wartosc < min) min = wartosc;
+            if (wartosc > max) max = wartosc;
+            suma += wartosc;
+        }
+    }
+    double srednia = (double)suma / liczba_pikseli;
+    printf("Statystyki obrazu:\n");
+    printf("Minimalna wartosc: %d\n", min);
+    printf("Maksymalna wartosc: %d\n", max);
+    printf("Srednia wartosc: %.2f\n", srednia);
+}
+void odbicie(struct Obraz* obr, int kierunek) {
+    if (!obr->piksele) return;
+    
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    
+    if (kierunek == 1) { // pionowe
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[i][obr->szerokosc - 1 - j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie pionowe\n");
+    } else { // poziome
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[obr->wysokosc - 1 - i][j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie poziome\n");
+    }
+    
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+}
+
+void szumPieprzSol(struct Obraz* obr, float prawdopodobienstwo) {
+    if (!obr->piksele) return;
+    srand(time(NULL));
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+    int liczba_zmian = (int)(liczba_pikseli * prawdopodobienstwo);
+    
+    for (int i = 0; i < liczba_zmian; i++) {
+        int x = rand() % obr->szerokosc;
+        int y = rand() % obr->wysokosc;
+        
+        if (rand() % 2 == 0) {
+            obr->piksele[y][x] = 0; // "pieprz" - czarny
+        } else {
+            obr->piksele[y][x] = obr->max_wartosc; // "sol" - bialy
+        }
+    }
+    printf("Dodano szum 'pieprz i sol' (p=%.3f)\n", prawdopodobienstwo);
+}
+
+int porownaj(const void* a, const void* b) {
+    return (*(int*)a - *(int*)b);
+}
+
+void filtrMedianowy(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    int okno[9]; // 3x3 = 9 elementow
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int licznik = 0;
+            
+            for (int m = -1; m <= 1; m++) {
+                for (int n = -1; n <= 1; n++) {
+                    int y = i + m;
+                    int x = j + n;
+                    
+                    if (y >= 0 && y < obr->wysokosc && x >= 0 && x < obr->szerokosc) {
+                        okno[licznik++] = obr->piksele[y][x];
+                    }
+                }
+            }
+            if (licznik > 0) {
+                qsort(okno, licznik, sizeof(int), porownaj);
+                nowe_piksele[i][j] = okno[licznik / 2];
+            } else {
+                nowe_piksele[i][j] = obr->piksele[i][j];
+            }
+        }
+    }
+    
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Zastosowano filtr medianowy 3x3\n");
+}
+
+void filtrGaussa(struct Obraz* obr) {
+    if (!obr->piksele) return;
+    
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    
+    // Maska Gaussa 3x3
+    int maska[3][3] = {{1, 2, 1},
+                       {2, 4, 2},
+                       {1, 2, 1}};
+    int suma_wag = 16;
+    
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int suma = 0;
+            int licznik = 0;
+            
+            for (int m = -1; m <= 1; m++) {
+                for (int n = -1; n <= 1; n++) {
+                    int y = i + m;
+                    int x = j + n;
+                    
+                    if (y >= 0 && y < obr->wysokosc && x >= 0 && x < obr->szerokosc) {
+                        suma += obr->piksele[y][x] * maska[m + 1][n + 1];
+                        licznik += maska[m + 1][n + 1];
+                    }
+                }
+            }
+            
+            if (licznik > 0) {
+                nowe_piksele[i][j] = suma / licznik;
+            } else {
+                nowe_piksele[i][j] = obr->piksele[i][j];
+            }
+        }
+    }
+    
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Zastosowano filtr Gaussa 3x3\n");
+}
+
+int main() {
+    struct Obraz obr;
+    obr.piksele = NULL;
+
+    char plikWe[MAX_NAZWA];
+    char plikWy[MAX_NAZWA];
+    int wybor = -1;
+
+    while (wybor != 0) {
+        printf("\n--- MENU PRZETWARZANIA OBRAZOW ---\n");
+        printf("1. Wczytaj obraz\n");
+        printf("2. Zapisz obraz\n");
+        printf("3. Obrót o 90 stopni\n");
+        printf("4. Obrót o 180 stopni\n");
+        printf("5. Obrót o 270 stopni\n");
+        printf("6. Negatyw obrazu\n");
+        printf("7. Histogram (zapis do CSV)\n");
+        printf("8. Statystyki obrazu\n");
+        printf("9. Odbicie pionowe\n");
+        printf("10. Odbicie poziome\n");
+        printf("11. Szum 'pieprz i sol'\n");
+        printf("12. Filtr medianowy 3x3\n");
+        printf("13. Filtr Gaussa 3x3\n");
+        printf("0. Wyjscie\n");
+        printf("Wybor: ");
+        scanf("%d", &wybor);
+
+        switch (wybor) {
+            case 1:
+                printf("Plik do odczytu: ");
+                scanf("%s", plikWe);
+                wczytajObraz(&obr, plikWe);
+                break;
+                
+            case 2:
+                printf("Plik do zapisu: ");
+                scanf("%s", plikWy);
+                zapiszObraz(&obr, plikWy);
+                break;
+                
+            case 3:
+                obrot90(&obr);
+                break;
+                
+            case 4:
+                obrot180(&obr);
+                break;
+                
+            case 5:
+                obrot270(&obr);
+                break;
+                
+            case 6:
+                negatyw(&obr);
+                break;
+                
+            case 7:
+                printf("Nazwa pliku CSV: ");
+                scanf("%s", plikWy);
+                histogram(&obr, plikWy);
+                break;
+                
+            case 8:
+                statystyki(&obr);
+                break;
+                
+            case 9:
+                odbicie(&obr, 1); // pionowe
+                break;
+                
+            case 10:
+                odbicie(&obr, 0); 
+                break;
+                
+            case 11:
+                printf("Podaj prawdopodobienstwo szumu (0.0-1.0): ");
+                float p;
+                scanf("%f", &p);
+                if (p >= 0.0f && p <= 1.0f) {
+                    szumPieprzSol(&obr, p);
+                } else {
+                    printf("Nieprawidlowe prawdopodobienstwo!\n");
+                }
+                break;
+            case 12:
+                filtrMedianowy(&obr);
+                break;
+                
+            case 13:
+                filtrGaussa(&obr);
+                break;
+                
+            case 0:
+                printf("Koniec programu.\n");
+                break;
+                
+            default:
+                printf("Nieprawidlowy wybor!\n");
+        }
+    }
+    zwolnijObraz(&obr);
+    return 0;
+}
