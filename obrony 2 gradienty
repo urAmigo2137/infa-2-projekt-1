@@ -1,0 +1,778 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <time.h>
+
+#define MAX_NAZWA 100
+
+typedef struct {
+    char nazwa[MAX_NAZWA];
+    char standard[3];
+    int szerokosc;
+    int wysokosc;
+    int max_wartosc;
+    int** piksele;
+} Obraz;
+
+typedef struct {
+    Obraz* tablica;   // dynamiczna tablica obrazów
+    int rozmiar;      // aktualna liczba obrazów w bazie
+    int wybrany;      // indeks aktualnie wybranego obrazu (-1 jeśli brak)
+} BazaObrazow;
+
+void zwolnijObraz(Obraz* obr) {
+    if (obr->piksele) {
+        for (int i = 0; i < obr->wysokosc; i++)
+            free(obr->piksele[i]);
+        free(obr->piksele);
+        obr->piksele = NULL;
+    }
+}
+
+void zwolnijBaze(BazaObrazow* baza) {
+    for (int i = 0; i < baza->rozmiar; i++) {
+        zwolnijObraz(&baza->tablica[i]);
+    }
+    free(baza->tablica);
+    baza->tablica = NULL;
+    baza->rozmiar = 0;
+    baza->wybrany = -1;
+}
+
+int pominKomentarze(FILE* plik) {
+    int c;
+    while ((c = fgetc(plik)) != EOF) {
+        if (c == '#') {
+            while ((c = fgetc(plik)) != '\n' && c != EOF);
+        }
+        else if (!isspace(c)) {
+            ungetc(c, plik);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int wczytajObraz(Obraz* obr, const char* nazwaPliku) {
+    zwolnijObraz(obr);
+    FILE* plik = fopen(nazwaPliku, "r");
+    if (!plik) {
+        printf("Blad: Nie mozna otworzyc pliku %s\n", nazwaPliku);
+        return 0;
+    }
+
+    pominKomentarze(plik);
+    if (fscanf(plik, "%2s", obr->standard) != 1) {
+        printf("Blad odczytu standardu pliku\n");
+        fclose(plik);
+        return 0;
+    }
+    pominKomentarze(plik);
+    if (fscanf(plik, "%d %d", &obr->szerokosc, &obr->wysokosc) != 2) {
+        printf("Blad odczytu rozmiarow obrazu\n");
+        fclose(plik);
+        return 0;
+    }
+    pominKomentarze(plik);
+    if (fscanf(plik, "%d", &obr->max_wartosc) != 1) {
+        printf("Blad odczytu maksymalnej wartosci piksela\n");
+        fclose(plik);
+        return 0;
+    }
+
+    obr->piksele = malloc(obr->wysokosc * sizeof(int*));
+    if (!obr->piksele) {
+        printf("Blad alokacji pamieci dla pikseli\n");
+        fclose(plik);
+        return 0;
+    }
+    for (int i = 0; i < obr->wysokosc; i++) {
+        obr->piksele[i] = malloc(obr->szerokosc * sizeof(int));
+        if (!obr->piksele[i]) {
+            printf("Blad alokacji pamieci dla wiersza pikseli\n");
+            for (int j = 0; j < i; j++) free(obr->piksele[j]);
+            free(obr->piksele);
+            obr->piksele = NULL;
+            fclose(plik);
+            return 0;
+        }
+    }
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            pominKomentarze(plik);
+            if (fscanf(plik, "%d", &obr->piksele[i][j]) != 1) {
+                printf("Blad odczytu piksela [%d][%d]\n", i, j);
+                for (int k = 0; k < obr->wysokosc; k++) free(obr->piksele[k]);
+                free(obr->piksele);
+                obr->piksele = NULL;
+                fclose(plik);
+                return 0;
+            }
+        }
+    }
+
+    fclose(plik);
+    strcpy(obr->nazwa, nazwaPliku);
+    printf("Wczytano: %s (%d x %d)\n", nazwaPliku, obr->szerokosc, obr->wysokosc);
+    return 1;
+}
+
+int zapiszObraz(Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) {
+        printf("Blad: Brak obrazu do zapisania\n");
+        return 0;
+    }
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (!plik) {
+        printf("Blad: Nie mozna utworzyc pliku %s\n", nazwaPliku);
+        return 0;
+    }
+    fprintf(plik, "%s\n", obr->standard);
+    fprintf(plik, "%d %d\n", obr->szerokosc, obr->wysokosc);
+    fprintf(plik, "%d\n", obr->max_wartosc);
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            fprintf(plik, "%d ", obr->piksele[i][j]);
+        }
+        fprintf(plik, "\n");
+    }
+    fclose(plik);
+    printf("Zapisano jako: %s\n", nazwaPliku);
+    return 1;
+}
+
+Obraz* dodajObrazDoBazy(BazaObrazow* baza) {
+    int nowyRozmiar = baza->rozmiar + 1;
+    Obraz* temp = realloc(baza->tablica, nowyRozmiar * sizeof(Obraz));
+    if (temp == NULL) {
+        printf("Blad realokacji pamieci dla bazy obrazow\n");
+        return NULL;
+    }
+    baza->tablica = temp;
+    baza->rozmiar = nowyRozmiar;
+    Obraz* nowyObraz = &baza->tablica[nowyRozmiar - 1];
+    nowyObraz->piksele = NULL;
+    nowyObraz->szerokosc = 0;
+    nowyObraz->wysokosc = 0;
+    nowyObraz->max_wartosc = 255;
+    nowyObraz->nazwa[0] = '\0';
+    nowyObraz->standard[0] = '\0';
+    baza->wybrany = nowyRozmiar - 1;
+    return nowyObraz;
+}
+
+void usunObrazZBazy(BazaObrazow* baza, int indeks) {
+    if (indeks < 0 || indeks >= baza->rozmiar) {
+        printf("Nieprawidlowy indeks obrazu\n");
+        return;
+    }
+    zwolnijObraz(&baza->tablica[indeks]);
+    if (indeks != baza->rozmiar - 1) {
+        baza->tablica[indeks] = baza->tablica[baza->rozmiar - 1];
+    }
+    baza->rozmiar--;
+    if (baza->rozmiar > 0) {
+        Obraz* temp = realloc(baza->tablica, baza->rozmiar * sizeof(Obraz));
+        if (temp == NULL) {
+            printf("Blad realokacji pamieci przy zmniejszaniu bazy\n");
+        }
+        else {
+            baza->tablica = temp;
+        }
+    }
+    else {
+        free(baza->tablica);
+        baza->tablica = NULL;
+    }
+
+    if (baza->wybrany == indeks) {
+        if (baza->rozmiar > 0) {
+            baza->wybrany = 0;
+        }
+        else {
+            baza->wybrany = -1;
+        }
+    }
+    else if (baza->wybrany == baza->rozmiar) {
+        if (baza->wybrany > indeks) {
+            baza->wybrany--;
+        }
+    }
+}
+
+void wyswietlBaze(BazaObrazow* baza) {
+    printf("\n--- Baza obrazow ---\n");
+    printf("Liczba obrazow: %d\n", baza->rozmiar);
+    if (baza->rozmiar == 0) {
+        printf("Baza jest pusta.\n");
+        return;
+    }
+
+    for (int i = 0; i < baza->rozmiar; i++) {
+        Obraz* obr = &baza->tablica[i];
+        printf("%d: %s (%d x %d)", i, obr->nazwa, obr->szerokosc, obr->wysokosc);
+        if (i == baza->wybrany) printf(" <-- wybrany");
+        printf("\n");
+    }
+}
+
+void wybierzObraz(BazaObrazow* baza, int indeks) {
+    if (indeks >= 0 && indeks < baza->rozmiar) {
+        baza->wybrany = indeks;
+        printf("Wybrano obraz: %s\n", baza->tablica[indeks].nazwa);
+    }
+    else {
+        printf("Nieprawidlowy indeks obrazu\n");
+    }
+}
+
+// FUNKCJE GENERUJĄCE GRADIENTY
+
+void generujGradientPoziomy(Obraz* obr, int szerokosc, int wysokosc) {
+    zwolnijObraz(obr);
+    obr->szerokosc = szerokosc;
+    obr->wysokosc = wysokosc;
+    obr->max_wartosc = 255;
+    strcpy(obr->standard, "P2");
+    snprintf(obr->nazwa, MAX_NAZWA, "gradient_poziomy_%dx%d.pgm", szerokosc, wysokosc);
+    
+    obr->piksele = malloc(wysokosc * sizeof(int*));
+    for (int i = 0; i < wysokosc; i++) {
+        obr->piksele[i] = malloc(szerokosc * sizeof(int));
+        for (int j = 0; j < szerokosc; j++) {
+            obr->piksele[i][j] = j;
+        }
+    }
+    printf("Wygenerowano gradient poziomy (%d x %d)\n", szerokosc, wysokosc);
+}
+
+void generujGradientPionowy(Obraz* obr, int szerokosc, int wysokosc) {
+    zwolnijObraz(obr);
+    obr->szerokosc = szerokosc;
+    obr->wysokosc = wysokosc;
+    obr->max_wartosc = 255;
+    strcpy(obr->standard, "P2");
+    snprintf(obr->nazwa, MAX_NAZWA, "gradient_pionowy_%dx%d.pgm", szerokosc, wysokosc);
+    
+    obr->piksele = malloc(wysokosc * sizeof(int*));
+    for (int i = 0; i < wysokosc; i++) {
+        obr->piksele[i] = malloc(szerokosc * sizeof(int));
+        for (int j = 0; j < szerokosc; j++) {
+            obr->piksele[i][j] = i;
+        }
+    }
+    printf("Wygenerowano gradient pionowy (%d x %d)\n", szerokosc, wysokosc);
+}
+
+void generujGradientSkos(Obraz* obr, int szerokosc, int wysokosc) {
+    zwolnijObraz(obr);
+    obr->szerokosc = szerokosc;
+    obr->wysokosc = wysokosc;
+    obr->max_wartosc = 255;
+    strcpy(obr->standard, "P2");
+    snprintf(obr->nazwa, MAX_NAZWA, "gradient_skos_%dx%d.pgm", szerokosc, wysokosc);
+    
+    obr->piksele = malloc(wysokosc * sizeof(int*));
+    for (int i = 0; i < wysokosc; i++) {
+        obr->piksele[i] = malloc(szerokosc * sizeof(int));
+        for (int j = 0; j < szerokosc; j++) {
+            obr->piksele[i][j] = j + i;
+        }
+    }
+    printf("Wygenerowano gradient skosny (%d x %d)\n", szerokosc, wysokosc);
+}
+
+void generujGradientLewaPrawa(Obraz* obr, int szerokosc, int wysokosc) {
+    zwolnijObraz(obr);
+    obr->szerokosc = szerokosc;
+    obr->wysokosc = wysokosc;
+    obr->max_wartosc = 255;
+    strcpy(obr->standard, "P2");
+    snprintf(obr->nazwa, MAX_NAZWA, "gradient_lewa_prawa_%dx%d.pgm", szerokosc, wysokosc);
+    
+    obr->piksele = malloc(wysokosc * sizeof(int*));
+    for (int i = 0; i < wysokosc; i++) {
+        obr->piksele[i] = malloc(szerokosc * sizeof(int));
+        for (int j = 0; j < szerokosc; j++) {
+            obr->piksele[i][j] = (j * 255) / (szerokosc - 1);
+        }
+    }
+    printf("Wygenerowano gradient lewa-prawa (%d x %d)\n", szerokosc, wysokosc);
+}
+
+void generujGradientGoraDol(Obraz* obr, int szerokosc, int wysokosc) {
+    zwolnijObraz(obr);
+    obr->szerokosc = szerokosc;
+    obr->wysokosc = wysokosc;
+    obr->max_wartosc = 255;
+    strcpy(obr->standard, "P2");
+    snprintf(obr->nazwa, MAX_NAZWA, "gradient_gora_dol_%dx%d.pgm", szerokosc, wysokosc);
+    
+    obr->piksele = malloc(wysokosc * sizeof(int*));
+    for (int i = 0; i < wysokosc; i++) {
+        obr->piksele[i] = malloc(szerokosc * sizeof(int));
+        for (int j = 0; j < szerokosc; j++) {
+            obr->piksele[i][j] = (i * 255) / (wysokosc - 1);
+        }
+    }
+    printf("Wygenerowano gradient gora-dol (%d x %d)\n", szerokosc, wysokosc);
+}
+
+void obrot90(Obraz* obr) {
+    if (!obr->piksele) return;
+    int nowa_szerokosc = obr->wysokosc;
+    int nowa_wysokosc = obr->szerokosc;
+    int** nowe_piksele = malloc(nowa_wysokosc * sizeof(int*));
+    for (int i = 0; i < nowa_wysokosc; i++)
+        nowe_piksele[i] = malloc(nowa_szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[j][nowa_szerokosc - 1 - i] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->szerokosc = nowa_szerokosc;
+    obr->wysokosc = nowa_wysokosc;
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 90 stopni\n");
+}
+
+void obrot180(Obraz* obr) {
+    if (!obr->piksele) return;
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[obr->wysokosc - 1 - i][obr->szerokosc - 1 - j] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 180 stopni\n");
+}
+
+void obrot270(Obraz* obr) {
+    if (!obr->piksele) return;
+    int nowa_szerokosc = obr->wysokosc;
+    int nowa_wysokosc = obr->szerokosc;
+    int** nowe_piksele = malloc(nowa_wysokosc * sizeof(int*));
+    for (int i = 0; i < nowa_wysokosc; i++)
+        nowe_piksele[i] = malloc(nowa_szerokosc * sizeof(int));
+
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            nowe_piksele[nowa_wysokosc - 1 - j][i] = obr->piksele[i][j];
+        }
+    }
+    zwolnijObraz(obr);
+    obr->szerokosc = nowa_szerokosc;
+    obr->wysokosc = nowa_wysokosc;
+    obr->piksele = nowe_piksele;
+    printf("Obrocono o 270 stopni\n");
+}
+
+void negatyw(Obraz* obr) {
+    if (!obr->piksele) return;
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            obr->piksele[i][j] = obr->max_wartosc - obr->piksele[i][j];
+        }
+    }
+    printf("Wykonano negatyw\n");
+}
+
+void histogram(Obraz* obr, const char* nazwaPliku) {
+    if (!obr->piksele) return;
+    int* hist = calloc(obr->max_wartosc + 1, sizeof(int));
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            hist[obr->piksele[i][j]]++;
+        }
+    }
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (plik) {
+        fprintf(plik, "Odcien,LiczbaPikseli\n");
+        for (int i = 0; i <= obr->max_wartosc; i++) {
+            fprintf(plik, "%d,%d\n", i, hist[i]);
+        }
+        fclose(plik);
+        printf("Histogram zapisano do: %s\n", nazwaPliku);
+    }
+    free(hist);
+}
+
+void statystyki(Obraz* obr) {
+    if (!obr->piksele) return;
+    int min = obr->max_wartosc;
+    int max = 0;
+    long long suma = 0;
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int wartosc = obr->piksele[i][j];
+            if (wartosc < min) min = wartosc;
+            if (wartosc > max) max = wartosc;
+            suma += wartosc;
+        }
+    }
+    double srednia = (double)suma / liczba_pikseli;
+    printf("Statystyki obrazu:\n");
+    printf("Minimalna wartosc: %d\n", min);
+    printf("Maksymalna wartosc: %d\n", max);
+    printf("Srednia wartosc: %.2f\n", srednia);
+}
+
+void odbicie(Obraz* obr, int kierunek) {
+    if (!obr->piksele) return;
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+
+    if (kierunek == 1) { // pionowe
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[i][obr->szerokosc - 1 - j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie pionowe\n");
+    }
+    else { // poziome
+        for (int i = 0; i < obr->wysokosc; i++) {
+            for (int j = 0; j < obr->szerokosc; j++) {
+                nowe_piksele[obr->wysokosc - 1 - i][j] = obr->piksele[i][j];
+            }
+        }
+        printf("Odbicie poziome\n");
+    }
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+}
+
+void szumPieprzSol(Obraz* obr, float prawdopodobienstwo) {
+    if (!obr->piksele) return;
+    srand(time(NULL));
+    int liczba_pikseli = obr->szerokosc * obr->wysokosc;
+    int liczba_zmian = (int)(liczba_pikseli * prawdopodobienstwo);
+    for (int i = 0; i < liczba_zmian; i++) {
+        int x = rand() % obr->szerokosc;
+        int y = rand() % obr->wysokosc;
+        if (rand() % 2 == 0) {
+            obr->piksele[y][x] = 0;
+        }
+        else {
+            obr->piksele[y][x] = obr->max_wartosc;
+        }
+    }
+    printf("Dodano szum 'pieprz i sol' (p=%.3f)\n", prawdopodobienstwo);
+}
+
+int porownaj(const void* a, const void* b) {
+    return (*(int*)a - *(int*)b);
+}
+
+void filtrMedianowy(Obraz* obr) {
+    if (!obr->piksele) return;
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    int okno[9];
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int licznik = 0;
+            for (int m = -1; m <= 1; m++) {
+                for (int n = -1; n <= 1; n++) {
+                    int y = i + m;
+                    int x = j + n;
+                    if (y >= 0 && y < obr->wysokosc && x >= 0 && x < obr->szerokosc) {
+                        okno[licznik++] = obr->piksele[y][x];
+                    }
+                }
+            }
+            if (licznik > 0) {
+                qsort(okno, licznik, sizeof(int), porownaj);
+                nowe_piksele[i][j] = okno[licznik / 2];
+            }
+            else {
+                nowe_piksele[i][j] = obr->piksele[i][j];
+            }
+        }
+    }
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Zastosowano filtr medianowy 3x3\n");
+}
+
+void filtrGaussa(Obraz* obr) {
+    if (!obr->piksele) return;
+    int** nowe_piksele = malloc(obr->wysokosc * sizeof(int*));
+    for (int i = 0; i < obr->wysokosc; i++)
+        nowe_piksele[i] = malloc(obr->szerokosc * sizeof(int));
+    int maska[3][3] = { {1, 2, 1}, {2, 4, 2}, {1, 2, 1} };
+    for (int i = 0; i < obr->wysokosc; i++) {
+        for (int j = 0; j < obr->szerokosc; j++) {
+            int suma = 0;
+            int licznik = 0;
+            for (int m = -1; m <= 1; m++) {
+                for (int n = -1; n <= 1; n++) {
+                    int y = i + m;
+                    int x = j + n;
+                    if (y >= 0 && y < obr->wysokosc && x >= 0 && x < obr->szerokosc) {
+                        suma += obr->piksele[y][x] * maska[m + 1][n + 1];
+                        licznik += maska[m + 1][n + 1];
+                    }
+                }
+            }
+            if (licznik > 0) {
+                nowe_piksele[i][j] = suma / licznik;
+            }
+            else {
+                nowe_piksele[i][j] = obr->piksele[i][j];
+            }
+        }
+    }
+    zwolnijObraz(obr);
+    obr->piksele = nowe_piksele;
+    printf("Zastosowano filtr Gaussa 3x3\n");
+}
+
+int main() {
+    BazaObrazow baza = { NULL, 0, -1 };
+    char plikWe[MAX_NAZWA];
+    char plikWy[MAX_NAZWA];
+    int wybor = -1;
+    float p;
+    int indeks;
+    int szerokosc, wysokosc;
+    Obraz* nowy;
+
+    while (wybor != 0) {
+        printf("\n--- MENU BAZY OBRAZOW ---\n");
+        printf("1. Dodaj obraz (wczytaj z pliku)\n");
+        printf("2. Generuj gradient poziomy (wartosci 0-99)\n");
+        printf("3. Generuj gradient pionowy (wartosci 0-99)\n");
+        printf("4. Generuj gradient skosny (wartosci 0-198)\n");
+        printf("5. Generuj gradient lewa-prawa (0-255)\n");
+        printf("6. Generuj gradient gora-dol (0-255)\n");
+        printf("7. Wyswietl baze\n");
+        printf("8. Wybierz obraz\n");
+        printf("9. Usun obraz\n");
+        printf("10. Zapisz wybrany obraz\n");
+        printf("\n--- PRZETWARZANIE WYBRANEGO OBRAZU ---\n");
+        printf("11. Obrót 90°\n");
+        printf("12. Obrót 180°\n");
+        printf("13. Obrót 270°\n");
+        printf("14. Negatyw\n");
+        printf("15. Histogram (zapis do CSV)\n");
+        printf("16. Statystyki\n");
+        printf("17. Odbicie pionowe\n");
+        printf("18. Odbicie poziome\n");
+        printf("19. Szum 'pieprz i sol'\n");
+        printf("20. Filtr medianowy\n");
+        printf("21. Filtr Gaussa\n");
+        printf("0. Wyjscie\n");
+        printf("Wybor: ");
+        scanf("%d", &wybor);
+
+        switch (wybor) {
+        case 1: // Dodaj obraz z pliku
+            printf("Plik do odczytu: ");
+            scanf("%s", plikWe);
+            nowy = dodajObrazDoBazy(&baza);
+            if (nowy) {
+                if (!wczytajObraz(nowy, plikWe)) {
+                    usunObrazZBazy(&baza, baza.rozmiar - 1);
+                }
+            }
+            break;
+
+        case 2: // Generuj gradient poziomy
+            printf("Podaj szerokosc: ");
+            scanf("%d", &szerokosc);
+            printf("Podaj wysokosc: ");
+            scanf("%d", &wysokosc);
+            if (szerokosc > 0 && wysokosc > 0) {
+                nowy = dodajObrazDoBazy(&baza);
+                if (nowy) {
+                    generujGradientPoziomy(nowy, szerokosc, wysokosc);
+                }
+            }
+            else {
+                printf("Nieprawidlowe wymiary!\n");
+            }
+            break;
+
+        case 3: // Generuj gradient pionowy
+            printf("Podaj szerokosc: ");
+            scanf("%d", &szerokosc);
+            printf("Podaj wysokosc: ");
+            scanf("%d", &wysokosc);
+            if (szerokosc > 0 && wysokosc > 0) {
+                nowy = dodajObrazDoBazy(&baza);
+                if (nowy) {
+                    generujGradientPionowy(nowy, szerokosc, wysokosc);
+                }
+            }
+            else {
+                printf("Nieprawidlowe wymiary!\n");
+            }
+            break;
+
+        case 4: // Generuj gradient skosny
+            printf("Podaj szerokosc: ");
+            scanf("%d", &szerokosc);
+            printf("Podaj wysokosc: ");
+            scanf("%d", &wysokosc);
+            if (szerokosc > 0 && wysokosc > 0) {
+                nowy = dodajObrazDoBazy(&baza);
+                if (nowy) {
+                    generujGradientSkos(nowy, szerokosc, wysokosc);
+                }
+            }
+            else {
+                printf("Nieprawidlowe wymiary!\n");
+            }
+            break;
+
+        case 5: // Generuj gradient lewa-prawa (0-255)
+            printf("Podaj szerokosc: ");
+            scanf("%d", &szerokosc);
+            printf("Podaj wysokosc: ");
+            scanf("%d", &wysokosc);
+            if (szerokosc > 0 && wysokosc > 0) {
+                nowy = dodajObrazDoBazy(&baza);
+                if (nowy) {
+                    generujGradientLewaPrawa(nowy, szerokosc, wysokosc);
+                }
+            }
+            else {
+                printf("Nieprawidlowe wymiary!\n");
+            }
+            break;
+
+        case 6: // Generuj gradient gora-dol (0-255)
+            printf("Podaj szerokosc: ");
+            scanf("%d", &szerokosc);
+            printf("Podaj wysokosc: ");
+            scanf("%d", &wysokosc);
+            if (szerokosc > 0 && wysokosc > 0) {
+                nowy = dodajObrazDoBazy(&baza);
+                if (nowy) {
+                    generujGradientGoraDol(nowy, szerokosc, wysokosc);
+                }
+            }
+            else {
+                printf("Nieprawidlowe wymiary!\n");
+            }
+            break;
+
+        case 7: // Wyswietl baze
+            wyswietlBaze(&baza);
+            break;
+
+        case 8: // Wybierz obraz
+            printf("Podaj indeks obrazu: ");
+            scanf("%d", &indeks);
+            wybierzObraz(&baza, indeks);
+            break;
+
+        case 9: // Usun obraz
+            printf("Podaj indeks obrazu do usuniecia: ");
+            scanf("%d", &indeks);
+            usunObrazZBazy(&baza, indeks);
+            break;
+
+        case 10: // Zapisz wybrany obraz
+            if (baza.wybrany >= 0) {
+                printf("Plik do zapisu: ");
+                scanf("%s", plikWy);
+                zapiszObraz(&baza.tablica[baza.wybrany], plikWy);
+            }
+            else {
+                printf("Nie wybrano obrazu.\n");
+            }
+            break;
+
+        case 11: // Obrót 90
+            if (baza.wybrany >= 0) obrot90(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 12: // Obrót 180
+            if (baza.wybrany >= 0) obrot180(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 13: // Obrót 270
+            if (baza.wybrany >= 0) obrot270(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 14: // Negatyw
+            if (baza.wybrany >= 0) negatyw(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 15: // Histogram
+            if (baza.wybrany >= 0) {
+                printf("Nazwa pliku CSV: ");
+                scanf("%s", plikWy);
+                histogram(&baza.tablica[baza.wybrany], plikWy);
+            }
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 16: // Statystyki
+            if (baza.wybrany >= 0) statystyki(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 17: // Odbicie pionowe
+            if (baza.wybrany >= 0) odbicie(&baza.tablica[baza.wybrany], 1);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 18: // Odbicie poziome
+            if (baza.wybrany >= 0) odbicie(&baza.tablica[baza.wybrany], 0);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 19: // Szum
+            if (baza.wybrany >= 0) {
+                printf("Podaj prawdopodobienstwo szumu (0.0-1.0): ");
+                scanf("%f", &p);
+                if (p >= 0.0f && p <= 1.0f) {
+                    szumPieprzSol(&baza.tablica[baza.wybrany], p);
+                }
+                else printf("Nieprawidlowe prawdopodobienstwo!\n");
+            }
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 20: // Filtr medianowy
+            if (baza.wybrany >= 0) filtrMedianowy(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 21: // Filtr Gaussa
+            if (baza.wybrany >= 0) filtrGaussa(&baza.tablica[baza.wybrany]);
+            else printf("Nie wybrano obrazu.\n");
+            break;
+
+        case 0: // Wyjscie
+            printf("Koniec programu.\n");
+            break;
+
+        default:
+            printf("Nieprawidlowy wybor!\n");
+        }
+    }
+
+    zwolnijBaze(&baza);
+    return 0;
+}
