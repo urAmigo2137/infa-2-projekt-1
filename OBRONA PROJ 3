@@ -1,0 +1,471 @@
+#define _CRT_SECURE_NO_WARNINGS
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+struct Samochod
+{
+    char marka[50];
+    char model[50];
+    int rocznik;
+    float pojemnosc;
+    char rodzaj_silnika[50];
+};
+
+struct Element
+{
+    struct Samochod dane;
+    struct Element* poprzedni;
+    struct Element* nastepny;
+};
+
+// --- FUNKCJE PODSTAWOWE ---
+
+void dodajNaKoniec(struct Element** pierwszy, struct Element** ostatni, struct Samochod wartosc)
+{
+    struct Element* nowy = (struct Element*)malloc(sizeof(struct Element));
+    if (nowy == NULL) return;
+    nowy->dane = wartosc;
+    nowy->nastepny = NULL;
+
+    if (*pierwszy == NULL)
+    {
+        nowy->poprzedni = NULL;
+        *pierwszy = nowy;
+        *ostatni = nowy;
+    }
+    else
+    {
+        nowy->poprzedni = *ostatni;
+        (*ostatni)->nastepny = nowy;
+        *ostatni = nowy;
+    }
+}
+
+void wyswietlListe(struct Element* pierwszy)
+{
+    struct Element* aktualny = pierwszy;
+    int numer = 1;
+
+    if (aktualny == NULL) {
+        printf("\nLista jest pusta.\n");
+        return;
+    }
+
+    printf("\nZawartosc listy:\n");
+    while (aktualny != NULL)
+    {
+        printf("%d. %s;%s;%d;%.1f;%s\n",
+            numer,
+            aktualny->dane.marka,
+            aktualny->dane.model,
+            aktualny->dane.rocznik,
+            aktualny->dane.pojemnosc,
+            aktualny->dane.rodzaj_silnika);
+        aktualny = aktualny->nastepny;
+        numer++;
+    }
+    printf("==================================\n");
+}
+
+void czyscListe(struct Element** pierwszy, struct Element** ostatni)
+{
+    struct Element* aktualny = *pierwszy;
+    struct Element* nastepny;
+
+    while (aktualny != NULL)
+    {
+        nastepny = aktualny->nastepny;
+        free(aktualny);
+        aktualny = nastepny;
+    }
+
+    *pierwszy = NULL;
+    *ostatni = NULL;
+}
+
+// --- SORTOWANIE I PORÓWNYWANIE ---
+
+int porownajCiagi(const char* str1, const char* str2)
+{
+    int i = 0;
+    while (str1[i] && str2[i])
+    {
+        char c1_upper = toupper((unsigned char)str1[i]);
+        char c2_upper = toupper((unsigned char)str2[i]);
+        if (c1_upper != c2_upper) return c1_upper - c2_upper;
+        if (str1[i] != str2[i]) return str1[i] - str2[i];
+        i++;
+    }
+    char c1_upper = toupper((unsigned char)str1[i]);
+    char c2_upper = toupper((unsigned char)str2[i]);
+    if (c1_upper != c2_upper) return c1_upper - c2_upper;
+    return str1[i] - str2[i];
+}
+
+void sortujListe(struct Element** pierwszy, struct Element** ostatni, int kolumna, int* ostatnio_sortowana_kolumna)
+{
+    int zamiana;
+    int porownanie;
+    struct Element* aktualny;
+    struct Element* nastepny;
+
+    if (*pierwszy == NULL) return;
+
+    do
+    {
+        zamiana = 0;
+        aktualny = *pierwszy;
+
+        while (aktualny->nastepny != NULL)
+        {
+            nastepny = aktualny->nastepny;
+
+            if (kolumna == 1) porownanie = porownajCiagi(aktualny->dane.marka, nastepny->dane.marka);
+            else if (kolumna == 2) porownanie = porownajCiagi(aktualny->dane.model, nastepny->dane.model);
+            else if (kolumna == 3) porownanie = (aktualny->dane.rocznik > nastepny->dane.rocznik) ? 1 : (aktualny->dane.rocznik < nastepny->dane.rocznik ? -1 : 0);
+            else if (kolumna == 4) porownanie = (aktualny->dane.pojemnosc > nastepny->dane.pojemnosc) ? 1 : (aktualny->dane.pojemnosc < nastepny->dane.pojemnosc ? -1 : 0);
+            else porownanie = porownajCiagi(aktualny->dane.rodzaj_silnika, nastepny->dane.rodzaj_silnika);
+
+            if (porownanie > 0)
+            {
+                if (aktualny->poprzedni != NULL) aktualny->poprzedni->nastepny = nastepny;
+                else *pierwszy = nastepny;
+
+                if (nastepny->nastepny != NULL) nastepny->nastepny->poprzedni = aktualny;
+                else *ostatni = aktualny;
+
+                nastepny->poprzedni = aktualny->poprzedni;
+                aktualny->nastepny = nastepny->nastepny;
+                nastepny->nastepny = aktualny;
+                aktualny->poprzedni = nastepny;
+                zamiana = 1;
+            }
+            else
+            {
+                aktualny = aktualny->nastepny;
+            }
+        }
+    } while (zamiana);
+
+    *ostatnio_sortowana_kolumna = kolumna;
+}
+
+// --- PLIKI ---
+
+void wczytajZPliku(struct Element** pierwszy, struct Element** ostatni, char* nazwaPliku)
+{
+    FILE* plik = fopen(nazwaPliku, "r");
+    if (plik == NULL) {
+        printf("Nie udalo sie otworzyc pliku %s\n", nazwaPliku);
+        return;
+    }
+    char linia[300];
+    fgets(linia, 300, plik); // Pominiecie naglowka
+
+    while (fgets(linia, 300, plik) != NULL)
+    {
+        struct Samochod samochod;
+        if (sscanf(linia, "%[^;];%[^;];%d;%f;%s",
+            samochod.marka, samochod.model, &samochod.rocznik,
+            &samochod.pojemnosc, samochod.rodzaj_silnika) == 5) 
+        {
+            dodajNaKoniec(pierwszy, ostatni, samochod);
+        }
+    }
+    fclose(plik);
+}
+
+void zapiszDoPliku(struct Element* pierwszy, char* nazwaPliku)
+{
+    FILE* plik = fopen(nazwaPliku, "w");
+    if (plik == NULL)
+    {
+        printf("Nie mozna otworzyc pliku do zapisu!\n");
+        return;
+    }
+
+    fprintf(plik, "marka(text);model(text);roczik(int);pojmnosc(float);rodzaj silnika(text)\n");
+    struct Element* aktualny = pierwszy;
+    while (aktualny != NULL)
+    {
+        fprintf(plik, "%s;%s;%d;%.1f;%s\n",
+            aktualny->dane.marka, aktualny->dane.model, aktualny->dane.rocznik,
+            aktualny->dane.pojemnosc, aktualny->dane.rodzaj_silnika);
+        aktualny = aktualny->nastepny;
+    }
+    fclose(plik);
+    printf("Lista zapisana do pliku %s\n", nazwaPliku);
+}
+
+// --- WYSZUKIWANIE I DODAWANIE ---
+
+void dodajPosortowany(struct Element** pierwszy, struct Element** ostatni, struct Samochod wartosc, int ostatnio_sortowana_kolumna)
+{
+    struct Element* nowy = (struct Element*)malloc(sizeof(struct Element));
+    if (nowy == NULL) return;
+    nowy->dane = wartosc;
+
+    if (*pierwszy == NULL)
+    {
+        nowy->poprzedni = NULL;
+        nowy->nastepny = NULL;
+        *pierwszy = nowy;
+        *ostatni = nowy;
+        return;
+    }
+
+    if (ostatnio_sortowana_kolumna == 0)
+    {
+        dodajNaKoniec(pierwszy, ostatni, wartosc);
+        free(nowy);
+        return;
+    }
+
+    struct Element* aktualny = *pierwszy;
+    int porownanie;
+
+    while (aktualny != NULL)
+    {
+        if (ostatnio_sortowana_kolumna == 1) porownanie = porownajCiagi(wartosc.marka, aktualny->dane.marka);
+        else if (ostatnio_sortowana_kolumna == 2) porownanie = porownajCiagi(wartosc.model, aktualny->dane.model);
+        else if (ostatnio_sortowana_kolumna == 3) porownanie = (wartosc.rocznik > aktualny->dane.rocznik) ? 1 : (wartosc.rocznik < aktualny->dane.rocznik ? -1 : 0);
+        else if (ostatnio_sortowana_kolumna == 4) porownanie = (wartosc.pojemnosc > aktualny->dane.pojemnosc) ? 1 : (wartosc.pojemnosc < aktualny->dane.pojemnosc ? -1 : 0);
+        else porownanie = porownajCiagi(wartosc.rodzaj_silnika, aktualny->dane.rodzaj_silnika);
+
+        if (porownanie <= 0)
+        {
+            nowy->nastepny = aktualny;
+            nowy->poprzedni = aktualny->poprzedni;
+            if (aktualny->poprzedni != NULL) aktualny->poprzedni->nastepny = nowy;
+            else *pierwszy = nowy;
+            aktualny->poprzedni = nowy;
+            return;
+        }
+        aktualny = aktualny->nastepny;
+    }
+    nowy->nastepny = NULL;
+    nowy->poprzedni = *ostatni;
+    (*ostatni)->nastepny = nowy;
+    *ostatni = nowy;
+}
+
+void usunElement(struct Element** pierwszy, struct Element** ostatni, int numer)
+{
+    struct Element* aktualny = *pierwszy;
+    int licznik = 1;
+    while (aktualny != NULL && licznik < numer) {
+        aktualny = aktualny->nastepny;
+        licznik++;
+    }
+    if (aktualny == NULL) {
+        printf("Nie ma elementu o takim numerze!\n");
+        return;
+    }
+    if (aktualny->poprzedni != NULL) aktualny->poprzedni->nastepny = aktualny->nastepny;
+    else *pierwszy = aktualny->nastepny;
+
+    if (aktualny->nastepny != NULL) aktualny->nastepny->poprzedni = aktualny->poprzedni;
+    else *ostatni = aktualny->poprzedni;
+
+    free(aktualny);
+    printf("Element usuniety.\n");
+}
+
+int czyZawiera(const char* tekst, const char* szukany)
+{
+    int dlugosc_tekstu = strlen(tekst);
+    int dlugosc_szukanego = strlen(szukany);
+    if (dlugosc_szukanego == 0) return 1;
+    if (dlugosc_szukanego > dlugosc_tekstu) return 0;
+
+    for (int i = 0; i <= dlugosc_tekstu - dlugosc_szukanego; i++)
+    {
+        int znaleziono = 1;
+        for (int j = 0; j < dlugosc_szukanego; j++)
+        {
+            if (tolower((unsigned char)tekst[i + j]) != tolower((unsigned char)szukany[j]))
+            {
+                znaleziono = 0;
+                break;
+            }
+        }
+        if (znaleziono) return 1;
+    }
+    return 0;
+}
+
+void wyszukajElementy(struct Element* pierwszy)
+{
+    char szukany[100];
+    printf("Podaj ciag znakow do wyszukania: ");
+    scanf("%s", szukany);
+
+    struct Element* aktualny = pierwszy;
+    int numer = 1;
+    int znaleziono = 0;
+
+    printf("\nWyniki wyszukiwania:\n");
+    while (aktualny != NULL)
+    {
+        if (czyZawiera(aktualny->dane.marka, szukany) ||
+            czyZawiera(aktualny->dane.model, szukany) ||
+            czyZawiera(aktualny->dane.rodzaj_silnika, szukany))
+        {
+            printf("%d. %s;%s;%d;%.1f;%s\n",
+                numer, aktualny->dane.marka, aktualny->dane.model,
+                aktualny->dane.rocznik, aktualny->dane.pojemnosc,
+                aktualny->dane.rodzaj_silnika);
+            znaleziono = 1;
+        }
+        aktualny = aktualny->nastepny;
+        numer++;
+    }
+    if (!znaleziono) printf("Nie znaleziono elementow zawierajacych '%s'\n", szukany);
+    printf("==================================\n");
+}
+
+// --- NOWA FUNKCJA ZADANIA ---
+
+void wyszukajPoLiterzeIZapisz(struct Element* pierwszy)
+{
+    char litera;
+    printf("Podaj litere alfabetu do wyszukania marek (np. f): ");
+    scanf(" %c", &litera); // Spacja przed %c usuwa zbedne znaki bialre z bufora
+
+    struct Element* nowaListaPierwszy = NULL;
+    struct Element* nowaListaOstatni = NULL;
+    struct Element* aktualny = pierwszy;
+    int licznik = 0;
+
+    while (aktualny != NULL)
+    {
+        // Sprawdzenie czy pierwsza litera marki zgadza sie z podana (niezaleznie od wielkosci)
+        if (toupper((unsigned char)aktualny->dane.marka[0]) == toupper((unsigned char)litera))
+        {
+            dodajNaKoniec(&nowaListaPierwszy, &nowaListaOstatni, aktualny->dane);
+            licznik++;
+        }
+        aktualny = aktualny->nastepny;
+    }
+
+    if (licznik > 0)
+    {
+        char nazwaPliku[50];
+        sprintf(nazwaPliku, "lista_%c.csv", tolower((unsigned char)litera));
+        
+        printf("\nZnaleziono %d samochodow marki na litere '%c'.\n", licznik, litera);
+        wyswietlListe(nowaListaPierwszy);
+        
+        zapiszDoPliku(nowaListaPierwszy, nazwaPliku);
+        
+        // Czyszczenie tymczasowej listy
+        czyscListe(&nowaListaPierwszy, &nowaListaOstatni);
+    }
+    else
+    {
+        printf("\nNie znaleziono zadnych marek zaczynajacych sie na litere '%c'.\n", litera);
+    }
+}
+
+// --- MAIN ---
+
+int main()
+{
+    struct Element* pierwszy = NULL;
+    struct Element* ostatni = NULL;
+    int ostatnio_sortowana_kolumna = 0;
+    int wybor;
+
+    while (1)
+    {
+        printf("\n===MENU===\n");
+        printf("1. Dodaj element do listy\n");
+        printf("2. Wyswietl liste\n");
+        printf("3. Wczytaj z pliku\n");
+        printf("4. Wyczysc liste\n");
+        printf("5. Sortuj liste\n");
+        printf("6. Dodaj element posortowany\n");
+        printf("7. Usun element\n");
+        printf("8. Wyszukaj elementy (ogolne)\n");
+        printf("9. Zapisz liste do pliku\n");
+        printf("10. Zakoncz program\n");
+        printf("11. Wyszukaj po literze marki i zapisz do pliku\n");
+        printf("Wybierz opcje: ");
+        
+        if (scanf("%d", &wybor) != 1) break;
+
+        if (wybor == 1)
+        {
+            struct Samochod samochod;
+            printf("Podaj marke: "); scanf("%s", samochod.marka);
+            printf("Podaj model: "); scanf("%s", samochod.model);
+            printf("Podaj rocznik: "); scanf("%d", &samochod.rocznik);
+            printf("Podaj pojemnosc: "); scanf("%f", &samochod.pojemnosc);
+            printf("Podaj rodzaj silnika: "); scanf("%s", samochod.rodzaj_silnika);
+            dodajNaKoniec(&pierwszy, &ostatni, samochod);
+            printf("Element dodany!\n");
+        }
+        else if (wybor == 2) wyswietlListe(pierwszy);
+        else if (wybor == 3)
+        {
+            char nazwaPliku[100];
+            printf("Podaj nazwe pliku: "); scanf("%s", nazwaPliku);
+            wczytajZPliku(&pierwszy, &ostatni, nazwaPliku);
+            printf("Dane wczytane z pliku.\n");
+        }
+        else if (wybor == 4)
+        {
+            czyscListe(&pierwszy, &ostatni);
+            printf("Lista wyczyszczona!\n");
+        }
+        else if (wybor == 5)
+        {
+            int kolumna;
+            printf("\n===MENU SORTOWANIA===\n1. Marka\n2. Model\n3. Rocznik\n4. Pojemnosc\n5. Rodzaj silnika\nWybierz kolumne: ");
+            scanf("%d", &kolumna);
+            sortujListe(&pierwszy, &ostatni, kolumna, &ostatnio_sortowana_kolumna);
+            wyswietlListe(pierwszy);
+        }
+        else if (wybor == 6)
+        {
+            struct Samochod samochod;
+            printf("Podaj marke: "); scanf("%s", samochod.marka);
+            printf("Podaj model: "); scanf("%s", samochod.model);
+            printf("Podaj rocznik: "); scanf("%d", &samochod.rocznik);
+            printf("Podaj pojemnosc: "); scanf("%f", &samochod.pojemnosc);
+            printf("Podaj rodzaj silnika: "); scanf("%s", samochod.rodzaj_silnika);
+            dodajPosortowany(&pierwszy, &ostatni, samochod, ostatnio_sortowana_kolumna);
+            printf("Element dodany!\n");
+            wyswietlListe(pierwszy);
+        }
+        else if (wybor == 7)
+        {
+            int numer;
+            wyswietlListe(pierwszy);
+            printf("Podaj numer elementu do usuniecia: ");
+            scanf("%d", &numer);
+            usunElement(&pierwszy, &ostatni, numer);
+        }
+        else if (wybor == 8) wyszukajElementy(pierwszy);
+        else if (wybor == 9)
+        {
+            char nazwaPliku[100];
+            printf("Podaj nazwe pliku do zapisu: "); scanf("%s", nazwaPliku);
+            zapiszDoPliku(pierwszy, nazwaPliku);
+        }
+        else if (wybor == 10)
+        {
+            czyscListe(&pierwszy, &ostatni);
+            printf("Koniec programu.\n");
+            break;
+        }
+        else if (wybor == 11)
+        {
+            wyszukajPoLiterzeIZapisz(pierwszy);
+        }
+    }
+    return 0;
+}
